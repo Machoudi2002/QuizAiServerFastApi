@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload PDF</title>
+    <script src="https://unpkg.com/htmx.org@1.9.6"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/@tailwindcss/browser@4"></script>
+</head>
+<body>
+    <div class="p-4 flex flex-col items-center gap-4">
+        <form id="uploadForm" hx-post="http://127.0.0.1:8000/generate-quiz" hx-encoding="multipart/form-data" hx-on="htmx:afterOnLoad">
+            <input type="file" accept="application/pdf" name="file" />
+            <button type="submit" class="bg-blue-500 text-white px-4 py-2 rounded-lg">Upload PDF</button>
+        </form>
+    </div>
+    <script defer>
+        document.getElementById('uploadForm').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent default form submission
+        });
+        document.body.addEventListener('htmx:afterOnLoad', function (event) {
+        let jsonResponse = null;
+        try {
+            jsonResponse = JSON.parse(event.detail.xhr.responseText); // Parse JSON
+            console.log(jsonResponse);
+        } catch (error) {
+            console.error("Invalid JSON response:", error);
+            return;
+        }});
+
+    </script>
+</body>
+</html>
