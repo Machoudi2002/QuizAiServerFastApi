@@ -43,28 +43,24 @@ def extract_text_from_pdf(pdf_file):
         raise HTTPException(status_code=400, detail=f"Failed to extract text from PDF: {str(e)}")
 
 # System prompt for generating the quiz
+
 system_prompt = """
 The user will provide some text extracted from a PDF. Please generate a multiple-choice quiz based on the content of the text.
 Each question should have one correct answer and three incorrect answers. Output the quiz in JSON format.
 
 EXAMPLE OUTPUT:
 {
-    "quizName": "english quiz",
+    "quizName": "French Quiz",
     "quiz": [
         {
-            "question": "Which is the highest mountain in the world?",
-            "options": ["Mount Everest", "K2", "Kangchenjunga", "Lhotse"],
-            "correct_answer": "Mount Everest"
-        },
-        {
-            "question": "Which is the longest river in the world?",
-            "options": ["Nile River", "Amazon River", "Yangtze River", "Mississippi River"],
-            "correct_answer": "Nile River"
+            "question": "What is the capital of France?",
+            "options": ["Paris", "London", "Berlin", "Madrid"],
+            "correct_answer": "Paris"
         }
     ]
 }
 
-IMPORTANT: The response must be in JSON format.
+IMPORTANT: The response must be a valid JSON object. Do not wrap it in Markdown or any other formatting.
 """
 
 # FastAPI endpoint to upload PDF and generate quiz
@@ -74,10 +70,14 @@ async def generate_quiz(request: Request, file: UploadFile = File(...)):
         # Step 1: Extract text from the uploaded PDF
         logger.info("Extracting text from PDF")
         pdf_text = extract_text_from_pdf(file.file)
-        logger.info("Extracted text from PDF")
+        logger.info(f"Extracted PDF Text: {pdf_text}")
+
+        if not pdf_text:
+            logger.error("Extracted text is empty")
+            raise HTTPException(status_code=400, detail="Extracted text is empty")
 
         # Step 2: Prepare the prompt for Deepseek API
-        user_prompt = f"Generate in french a multiple-choice quiz with a minimum of 15 questions based on the following text:\n\n{pdf_text}"
+        user_prompt = f"Generate in French a multiple-choice quiz with a minimum of 15 questions based on the following text:\n\n{pdf_text}"
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -85,34 +85,41 @@ async def generate_quiz(request: Request, file: UploadFile = File(...)):
 
         # Step 3: Call the Deepseek API
         logger.info("Calling Deepseek API")
-        response = client.chat.completions.create(
-            model="deepseek/deepseek-r1-distill-llama-70b:free",
-            messages=messages,
-            response_format={
-                'type': 'json_object'
-            }
-        )
-        logger.info("Received response from Deepseek API")
+        try:
+            response = client.chat.completions.create(
+                model="qwen/qwq-32b:free",
+                messages=messages,
+                response_format={
+                    'type': 'json_object'
+                }
+            )
+            logger.info(f"Raw API Response: {response}")
+        except Exception as e:
+            logger.error(f"API Call Failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"API Call Failed: {str(e)}")
 
-        response = response.choices[0].message.content
-        json_match = re.search(r'```json\s*({.*?})\s*```', response, re.DOTALL)
-        if json_match:
-            # Extract the JSON string
-            json_str = json_match.group(1)
-    
-            # Parse the JSON string into a Python dictionary
+        response_content = response.choices[0].message.content
+        logger.info(f"API Response Content: {response_content}")
+
+        # Step 4: Handle empty responses
+        if not response_content:
+            logger.error("API returned an empty response")
+            raise HTTPException(status_code=500, detail="API returned an empty response")
+
+        # Step 5: Parse the JSON response
+        if response_content.strip().startswith("{") and response_content.strip().endswith("}"):
             try:
-                json_data = json.loads(json_str)
+                json_data = json.loads(response_content)
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON: {e}")
                 raise HTTPException(status_code=500, detail="Failed to parse JSON")
         else:
-            logger.error("No JSON match found in the response")
-            raise HTTPException(status_code=500, detail="No JSON match found in the response")
-        
+            logger.error(f"Unexpected response format: {response_content}")
+            raise HTTPException(status_code=500, detail="Unexpected response format")
+
         logger.info("Generated quiz successfully")
         
-        # Render the quiz using Jinja2 template
+        # Step 6: Return the quiz as JSON
         return JSONResponse(json_data)
     except Exception as e:
         logger.error(f"Failed to generate quiz: {str(e)}")
